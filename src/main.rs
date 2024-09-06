@@ -19,7 +19,7 @@ fn create_socket() -> SocketAddr {
     SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 5500)
 }
 
-fn handle_client(mut stream: TcpStream) -> io::Result<()> {
+fn handle_client(mut stream: TcpStream, root_dir: &Path) -> io::Result<()> {
     let mut buffer = [0; 1024];
     stream.read(&mut buffer)?;
 
@@ -30,7 +30,7 @@ fn handle_client(mut stream: TcpStream) -> io::Result<()> {
         Some(request) => {
             println!("Parsed request: {:?}", request);
             let response = match request.method() {
-                Method::Get => handle_get_request(&request),
+                Method::Get => handle_get_request(&request, root_dir),
                 Method::Post => handle_post_request(&request),
                 _ => {
                     println!("Unsupported method: {:?}", request.method());
@@ -54,18 +54,14 @@ fn handle_client(mut stream: TcpStream) -> io::Result<()> {
     Ok(())
 }
 
-fn handle_get_request(request: &HttpRequest) -> HttpResponse {
-    let root_dir = env::current_dir().unwrap_or_else(|e| {
-        println!("Error getting current directory: {}", e);
-        PathBuf::from(".")
-    });
+fn handle_get_request(request: &HttpRequest, root_dir: &Path) -> HttpResponse {
     let decoded_path = decode(request.route().path());
     let requested_path = root_dir.join(decoded_path.trim_start_matches('/'));
 
     println!("Root dir: {:?}", root_dir);
     println!("Requested path: {:?}", requested_path);
 
-    match is_safe_path(&root_dir, &requested_path) {
+    match is_safe_path(root_dir, &requested_path) {
         Ok(true) => {
             if requested_path.is_dir() {
                 println!("Serving directory: {:?}", requested_path);
@@ -75,7 +71,7 @@ fn handle_get_request(request: &HttpRequest) -> HttpResponse {
                 handle_file_request(request, &requested_path)
             } else {
                 println!("Path not found: {:?}", requested_path);
-                HttpResponse::new(request.version().clone(), ResponseStatus::NotFound, request.route().path().to_string())
+                HttpResponse::new(request.version().clone(), ResponseStatus::NotFound, "Not Found".to_string())
             }
         },
         Ok(false) => {
@@ -84,21 +80,30 @@ fn handle_get_request(request: &HttpRequest) -> HttpResponse {
         },
         Err(e) => {
             println!("Error checking path safety: {}", e);
-            HttpResponse::new(request.version().clone(), ResponseStatus::InternalServerError, format!("Error checking path safety: {}", e))
+            HttpResponse::new(request.version().clone(), ResponseStatus::NotFound, "Not Found".to_string())
         }
     }
 }
 
-
 fn is_safe_path(root_dir: &Path, requested_path: &Path) -> io::Result<bool> {
     let canonicalized_root = root_dir.canonicalize()?;
-    let canonicalized_requested = requested_path.canonicalize()?;
+    let requested_path_buf = requested_path.to_path_buf();
     
-    println!("Root dir: {:?}", canonicalized_root);
-    println!("Requested path: {:?}", canonicalized_requested);
+    // Check if the requested path exists
+    if !requested_path_buf.exists() {
+        // If it doesn't exist, check if its parent directory is within the root
+        if let Some(parent) = requested_path_buf.parent() {
+            let canonicalized_parent = parent.canonicalize()?;
+            return Ok(canonicalized_parent.starts_with(&canonicalized_root));
+        }
+    } else {
+        let canonicalized_requested = requested_path_buf.canonicalize()?;
+        return Ok(canonicalized_requested.starts_with(&canonicalized_root));
+    }
     
-    Ok(canonicalized_requested.starts_with(&canonicalized_root))
+    Ok(false)
 }
+
 
 fn handle_directory_listing(request: &HttpRequest, dir_path: &Path) -> HttpResponse {
     let mut response = HttpResponse::new(request.version().clone(), ResponseStatus::OK, dir_path.to_string_lossy().into_owned());
@@ -261,13 +266,14 @@ fn handle_post_request(request: &HttpRequest) -> HttpResponse {
     response
 }
 
-fn serve(socket: SocketAddr) -> io::Result<()> {
+fn serve(socket: SocketAddr, root_dir: PathBuf) -> io::Result<()> {
     let listener = TcpListener::bind(socket)?;
-    println!("Server listening on {}", socket);
+    println!("Server listening on {} serving directory {:?}", socket, root_dir);
     
     for stream in listener.incoming() {
         let stream = stream?;
-        if let Err(e) = handle_client(stream) {
+        let root_dir = root_dir.clone();
+        if let Err(e) = handle_client(stream, &root_dir) {
             eprintln!("Error handling client: {}", e);
         }
     }
@@ -275,6 +281,13 @@ fn serve(socket: SocketAddr) -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
+    let args: Vec<String> = env::args().collect();
+    let root_dir = if args.len() > 1 {
+        PathBuf::from(&args[1])
+    } else {
+        env::current_dir()?
+    };
+
     let socket = create_socket();
-    serve(socket)
+    serve(socket, root_dir)
 }
