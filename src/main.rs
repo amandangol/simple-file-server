@@ -15,6 +15,7 @@ mod http {
     pub mod response;
 }
 
+
 fn create_socket() -> SocketAddr {
     SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 5500)
 }
@@ -55,32 +56,32 @@ fn handle_client(mut stream: TcpStream, root_dir: &Path) -> io::Result<()> {
 }
 
 fn handle_get_request(request: &HttpRequest, root_dir: &Path) -> HttpResponse {
-    let decoded_path = decode(request.route().path());
-    let requested_path = root_dir.join(decoded_path.trim_start_matches('/'));
+    let requested_path = request.route().path();
+    let full_path = root_dir.join(requested_path.trim_start_matches('/'));
 
     println!("Root dir: {:?}", root_dir);
-    println!("Requested path: {:?}", requested_path);
+    println!("Requested path: {:?}", full_path);
 
-    match is_safe_path(root_dir, &requested_path) {
+    match is_safe_path(root_dir, &full_path) {
         Ok(true) => {
-            if requested_path.is_dir() {
-                println!("Serving directory: {:?}", requested_path);
-                handle_directory_listing(request, &requested_path)
-            } else if requested_path.is_file() {
-                println!("Serving file: {:?}", requested_path);
-                handle_file_request(request, &requested_path)
+            if full_path.is_dir() {
+                println!("Serving directory: {:?}", full_path);
+                handle_directory_listing(request, &full_path)
+            } else if full_path.is_file() {
+                println!("Serving file: {:?}", full_path);
+                handle_file_request(request, &full_path)
             } else {
-                println!("Path not found: {:?}", requested_path);
-                HttpResponse::new(request.version().clone(), ResponseStatus::NotFound, "Not Found".to_string())
+                println!("Path not found: {:?}", full_path);
+                HttpResponse::new(request.version().clone(), ResponseStatus::NotFound, full_path.to_string_lossy().into_owned())
             }
         },
         Ok(false) => {
-            println!("Unsafe path access attempted: {:?}", requested_path);
+            println!("Unsafe path access attempted: {:?}", full_path);
             HttpResponse::new(request.version().clone(), ResponseStatus::Forbidden, "Forbidden".to_string())
         },
         Err(e) => {
             println!("Error checking path safety: {}", e);
-            HttpResponse::new(request.version().clone(), ResponseStatus::NotFound, "Not Found".to_string())
+            HttpResponse::new(request.version().clone(), ResponseStatus::InternalServerError, "Internal Server Error".to_string())
         }
     }
 }
@@ -89,87 +90,187 @@ fn is_safe_path(root_dir: &Path, requested_path: &Path) -> io::Result<bool> {
     let canonicalized_root = root_dir.canonicalize()?;
     let requested_path_buf = requested_path.to_path_buf();
     
-    // Check if the requested path exists
-    if !requested_path_buf.exists() {
-        // If it doesn't exist, check if its parent directory is within the root
+    if requested_path_buf.exists() {
+        let canonicalized_requested = requested_path_buf.canonicalize()?;
+        Ok(canonicalized_requested.starts_with(&canonicalized_root))
+    } else {
+        // If the path doesn't exist, check its parent
         if let Some(parent) = requested_path_buf.parent() {
             let canonicalized_parent = parent.canonicalize()?;
-            return Ok(canonicalized_parent.starts_with(&canonicalized_root));
+            Ok(canonicalized_parent.starts_with(&canonicalized_root))
+        } else {
+            Ok(false)
         }
-    } else {
-        let canonicalized_requested = requested_path_buf.canonicalize()?;
-        return Ok(canonicalized_requested.starts_with(&canonicalized_root));
     }
-    
-    Ok(false)
 }
 
+// fn handle_directory_listing(request: &HttpRequest, dir_path: &Path) -> HttpResponse {
+//     let mut response = HttpResponse::new(request.version().clone(), ResponseStatus::OK, dir_path.to_string_lossy().into_owned());
+//     let mut content = String::new();
+//     content.push_str(r#"<!DOCTYPE html>
+// <html lang="en">
+// <head>
+//     <meta charset="utf-8">
+//     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+//     <title>Directory listing</title>
+//     <style>
+//     /* Insert the CSS code here */
+//     body {
+//         font-family: Arial, sans-serif;
+//         line-height: 1.6;
+//         color: #333;
+//         max-width: 800px;
+//         margin: 0 auto;
+//         padding: 20px;
+//         background-color: #f4f4f4;
+//     }
+//     h1 {
+//         color: #2c3e50;
+//         border-bottom: 2px solid #3498db;
+//         padding-bottom: 10px;
+//     }
+//     ul {
+//         list-style-type: none;
+//         padding: 0;
+//     }
+//     li {
+//         margin-bottom: 10px;
+//         background-color: #fff;
+//         border-radius: 4px;
+//         overflow: hidden;
+//     }
+//     li a {
+//         display: block;
+//         padding: 10px 15px;
+//         color: #2980b9;
+//         text-decoration: none;
+//         transition: background-color 0.3s ease;
+//     }
+//     li a:hover {
+//         background-color: #ecf0f1;
+//     }
+//     .parent-dir {
+//         font-weight: bold;
+//     }
+//     .file-icon, .folder-icon {
+//         margin-right: 10px;
+//     }
+//     .file-icon::before {
+//         content: "📄";
+//     }
+//     .folder-icon::before {
+//         content: "📁";
+//     }
+//     </style>
+// </head>
+// <body>"#);
+//     content.push_str(&format!("<h1>Directory listing for {}</h1>", dir_path.to_string_lossy()));
+//     content.push_str("<ul>");
+
+//     if let Some(parent) = dir_path.parent() {
+//         content.push_str(&format!(r#"<li><a href="{}" class="parent-dir"><span class="folder-icon"></span>Parent Directory</a></li>"#, parent.to_string_lossy()));
+//     }
+
+//     match fs::read_dir(dir_path) {
+//         Ok(entries) => {
+//             for entry in entries {
+//                 if let Ok(entry) = entry {
+//                     let path = entry.path();
+//                     let name = path.file_name().unwrap_or_default().to_string_lossy();
+//                     let link = format!("{}", name);
+//                     let icon_class = if path.is_dir() { "folder-icon" } else { "file-icon" };
+//                     content.push_str(&format!(r#"<li><a href="{}"><span class="{}"></span>{}</a></li>"#, link, icon_class, name));
+//                 }
+//             }
+//         },
+//         Err(e) => {
+//             match e.kind() {
+//                 io::ErrorKind::PermissionDenied => {
+//                     response.status = ResponseStatus::Forbidden;
+//                     content.push_str(&format!("<p>Access denied: {}</p>", e));
+//                 },
+//                 _ => {
+//                     response.status = ResponseStatus::InternalServerError;
+//                     content.push_str(&format!("<p>An error occurred: {}</p>", e));
+//                 }
+//             }
+//         }
+//     }
+
+//     content.push_str("</ul></body></html>");
+
+//     response.add_header("Content-Type", "text/html");
+//     response.set_body(content.into_bytes());
+//     response
+// }
 
 fn handle_directory_listing(request: &HttpRequest, dir_path: &Path) -> HttpResponse {
     let mut response = HttpResponse::new(request.version().clone(), ResponseStatus::OK, dir_path.to_string_lossy().into_owned());
     let mut content = String::new();
     content.push_str(r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Directory listing</title>
-    <style>
-    /* Insert the CSS code here */
-    body {
-        font-family: Arial, sans-serif;
-        line-height: 1.6;
-        color: #333;
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 20px;
-        background-color: #f4f4f4;
-    }
-    h1 {
-        color: #2c3e50;
-        border-bottom: 2px solid #3498db;
-        padding-bottom: 10px;
-    }
-    ul {
-        list-style-type: none;
-        padding: 0;
-    }
-    li {
-        margin-bottom: 10px;
-        background-color: #fff;
-        border-radius: 4px;
-        overflow: hidden;
-    }
-    li a {
-        display: block;
-        padding: 10px 15px;
-        color: #2980b9;
-        text-decoration: none;
-        transition: background-color 0.3s ease;
-    }
-    li a:hover {
-        background-color: #ecf0f1;
-    }
-    .parent-dir {
-        font-weight: bold;
-    }
-    .file-icon, .folder-icon {
-        margin-right: 10px;
-    }
-    .file-icon::before {
-        content: "📄";
-    }
-    .folder-icon::before {
-        content: "📁";
-    }
-    </style>
-</head>
-<body>"#);
+    <html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Directory listing</title>
+        <style>
+        /* Insert the CSS code here */
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        li {
+            margin-bottom: 10px;
+            background-color: #fff;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        li a {
+            display: block;
+            padding: 10px 15px;
+            color: #2980b9;
+            text-decoration: none;
+            transition: background-color 0.3s ease;
+        }
+        li a:hover {
+            background-color: #ecf0f1;
+        }
+        .parent-dir {
+            font-weight: bold;
+        }
+        .file-icon, .folder-icon {
+            margin-right: 10px;
+        }
+        .file-icon::before {
+            content: "📄";
+        }
+        .folder-icon::before {
+            content: "📁";
+        }
+        </style>
+    </head>
+    <body>"#);
     content.push_str(&format!("<h1>Directory listing for {}</h1>", dir_path.to_string_lossy()));
     content.push_str("<ul>");
 
+    // Add parent directory link
     if let Some(parent) = dir_path.parent() {
-        content.push_str(&format!(r#"<li><a href="{}" class="parent-dir"><span class="folder-icon"></span>Parent Directory</a></li>"#, parent.to_string_lossy()));
+        let parent_path = parent.strip_prefix(env::current_dir().unwrap()).unwrap_or(parent);
+        content.push_str(&format!(r#"<li><a href="/{}"><span class="folder-icon"></span>Parent Directory</a></li>"#, parent_path.to_string_lossy()));
     }
 
     match fs::read_dir(dir_path) {
@@ -178,7 +279,8 @@ fn handle_directory_listing(request: &HttpRequest, dir_path: &Path) -> HttpRespo
                 if let Ok(entry) = entry {
                     let path = entry.path();
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
-                    let link = format!("{}", name);
+                    let relative_path = path.strip_prefix(env::current_dir().unwrap()).unwrap_or(&path);
+                    let link = format!("/{}", relative_path.to_string_lossy());
                     let icon_class = if path.is_dir() { "folder-icon" } else { "file-icon" };
                     content.push_str(&format!(r#"<li><a href="{}"><span class="{}"></span>{}</a></li>"#, link, icon_class, name));
                 }
@@ -204,6 +306,7 @@ fn handle_directory_listing(request: &HttpRequest, dir_path: &Path) -> HttpRespo
     response.set_body(content.into_bytes());
     response
 }
+
 fn handle_file_request(request: &HttpRequest, file_path: &Path) -> HttpResponse {
     let mut response = HttpResponse::new(request.version().clone(), ResponseStatus::OK, file_path.to_string_lossy().into_owned());
 
@@ -283,7 +386,7 @@ fn serve(socket: SocketAddr, root_dir: PathBuf) -> io::Result<()> {
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     let root_dir = if args.len() > 1 {
-        PathBuf::from(&args[1])
+        PathBuf::from(&args[1]).canonicalize()?
     } else {
         env::current_dir()?
     };

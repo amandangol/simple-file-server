@@ -37,13 +37,13 @@ No HTTP-related libraries (such as hyper or reqwest) are used in this implementa
 2. Build the project:
 
    ```
-   cargo build --release
+   cargo build
    ```
 
 3. Run the server:
 
    ```
-   cargo run --release [path]
+   cargo run
    ```
 
    Replace `[path]` with the directory you want to serve. If no path is provided, the current directory will be used.
@@ -57,8 +57,3 @@ No HTTP-related libraries (such as hyper or reqwest) are used in this implementa
 - Files can be viewed or downloaded depending on their type.
 - Videos can be watched directly in the browser (if the browser supports the video format).
 - Backtracking beyond the server's root directory is prohibited for security reasons.
-
-## Security Considerations
-
-- This server is intended for local use only and should not be exposed to the public internet without proper security measures.
-- The server prevents access to directories outside of the specified root directory.

@@ -89,13 +89,24 @@ impl HttpResponse {
     }
 
     pub fn formatted_output(&self) -> String {
+        let body_preview = match std::str::from_utf8(&self.response_body) {
+            Ok(s) => {
+                if s.len() > 100 {
+                    format!("{}... <{} more bytes>", &s[..100], s.len() - 100)
+                } else {
+                    s.to_string()
+                }
+            },
+            Err(_) => format!("<{} bytes of non-UTF8 data>", self.response_body.len()),
+        };
+
         format!(
-            "HttpResponse{{ version: {:?}, status: {:?}, content_length: {}, accept_ranges: {}, response_body: <{} bytes>, current_path: {:?} }}",
+            "HttpResponse{{ version: {:?}, status: {:?}, content_length: {}, accept_ranges: {}, response_body: {}, current_path: {:?} }}",
             self.version,
             self.status,
             self.headers.get("content-length").unwrap_or(&String::from("0")),
             self.headers.get("accept-ranges").unwrap_or(&String::from("none")),
-            self.response_body.len(),
+            body_preview,
             self.current_path,
         )
     }
