@@ -72,28 +72,6 @@ impl HttpRequest {
     }
 }
 
-#[derive(Debug)]
-pub struct HttpHeader {
-    headers: HashMap<String, String>,
-}
-
-impl HttpHeader {
-    pub fn new(request: &str) -> Option<HttpHeader> {
-        let mut headers = HashMap::new();
-        let (_, header_str) = request.split_once("\r\n")?;
-
-        for line in header_str.split_terminator("\r\n") {
-            if line.is_empty() {
-                break;
-            }
-            let (header, value) = line.split_once(":")?;
-            headers.insert(header.trim().to_string(), value.trim().to_string());
-        }
-
-        Some(HttpHeader { headers })
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum Version {
     V1_1,
@@ -176,7 +154,6 @@ pub struct Route {
 
 impl Route {
     pub fn new(path: &str) -> Self {
-        // Remove leading '/' if present
         let clean_path = path.trim_start_matches('/').to_string();
         Route { path: clean_path }
     }

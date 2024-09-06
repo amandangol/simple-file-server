@@ -15,7 +15,6 @@ mod http {
     pub mod response;
 }
 
-
 fn create_socket() -> SocketAddr {
     SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 5500)
 }
@@ -284,12 +283,7 @@ fn serve(socket: SocketAddr, root_dir: PathBuf) -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let root_dir = if args.len() > 1 {
-        PathBuf::from(&args[1]).canonicalize()?
-    } else {
-        env::current_dir()?
-    };
+    let root_dir = env::current_dir()?;
 
     let socket = create_socket();
     serve(socket, root_dir)
