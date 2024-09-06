@@ -21,9 +21,9 @@ fn create_socket() -> SocketAddr {
 
 fn handle_client(mut stream: TcpStream, root_dir: &Path) -> io::Result<()> {
     let mut buffer = [0; 1024];
-    stream.read(&mut buffer)?;
+    let bytes_read = stream.read(&mut buffer)?;
+    let request_str = String::from_utf8_lossy(&buffer[..bytes_read]).trim_end_matches('\0').to_string();
 
-    let request_str = String::from_utf8_lossy(&buffer);
     println!("Received request:\n{}", request_str);
 
     match HttpRequest::new(&request_str) {
